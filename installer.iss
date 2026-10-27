@@ -9,6 +9,8 @@ Compression=lzma2
 SolidCompression=yes
 PrivilegesRequired=lowest
 UninstallDisplayName=Cubix
+UninstallDisplayIcon={app}\Cubix.exe
+SetupIconFile=icon.ico
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"

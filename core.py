@@ -432,6 +432,68 @@ def create_instance(name, mc, loader, cb=noop, loader_version=None):
     return inst
 
 
+# ───────────────────────── skins (CustomSkinLoader) ─────────────────────────
+SKIN_PNG = ROOT / "skin.png"
+
+
+def set_skin(path):
+    from PIL import Image
+    im = Image.open(path)
+    if im.size not in ((64, 64), (64, 32)):
+        raise RuntimeError("Скин должен быть PNG размером 64×64 (или старый 64×32)")
+    im.convert("RGBA").save(SKIN_PNG)
+
+
+def sync_skin(inst, nick):
+    """Кладёт скин в папку CustomSkinLoader сборки под именем ника."""
+    if not SKIN_PNG.exists():
+        return
+    d = game_dir(inst) / "CustomSkinLoader" / "LocalSkin" / "skins"
+    d.mkdir(parents=True, exist_ok=True)
+    shutil.copy(SKIN_PNG, d / f"{nick}.png")
+
+
+def apply_skin(inst, nick, cb=noop):
+    if not SKIN_PNG.exists():
+        raise RuntimeError("Сначала выбери файл скина")
+    if inst["loader"] == "vanilla":
+        raise RuntimeError("Скины работают на Fabric, Quilt, Forge или NeoForge. Создай такую сборку.")
+    mods = game_dir(inst) / "mods"
+    have = mods.exists() and any(p.name.lower().startswith("customskinloader") for p in mods.glob("*.jar"))
+    if not have:
+        try:
+            mr_install("customskinloader", "mod", inst, cb)
+        except requests.HTTPError:
+            hit = next((r for r in mr_search("CustomSkinLoader", "mod", inst)
+                        if "customskinloader" in r["title"].lower().replace(" ", "")), None)
+            if not hit:
+                raise RuntimeError("Не нашёл CustomSkinLoader для этой версии игры")
+            mr_install(hit["id"], "mod", inst, cb)
+    sync_skin(inst, nick)
+
+
+def skin_preview(path, scale=8):
+    """Рисует скин спереди (голова, тело, руки, ноги) для превью."""
+    from PIL import Image
+    im = Image.open(path).convert("RGBA")
+    legacy = im.height == 32
+    flip = Image.Transpose.FLIP_LEFT_RIGHT
+    cv = Image.new("RGBA", (16, 32), (0, 0, 0, 0))
+    part = lambda b: im.crop(b)
+    cv.paste(part((8, 8, 16, 16)), (4, 0))
+    hat = part((40, 8, 48, 16))
+    cv.paste(hat, (4, 0), hat)
+    cv.paste(part((20, 20, 28, 32)), (4, 8))
+    rarm, rleg = part((44, 20, 48, 32)), part((4, 20, 8, 32))
+    larm = rarm.transpose(flip) if legacy else part((36, 52, 40, 64))
+    lleg = rleg.transpose(flip) if legacy else part((20, 52, 24, 64))
+    cv.paste(rarm, (0, 8), rarm)
+    cv.paste(larm, (12, 8), larm)
+    cv.paste(rleg, (4, 20), rleg)
+    cv.paste(lleg, (8, 20), lleg)
+    return cv.resize((16 * scale, 32 * scale), Image.NEAREST)
+
+
 # ───────────────────────── launch ─────────────────────────
 def expand(args, variables):
     out = []
@@ -455,6 +517,8 @@ def launch(inst, nick, cfg, cb=noop):
     vj = prep["vj"]
     java = cfg.get("java") or ensure_java(vj.get("javaVersion", {}).get("majorVersion", 8), cb)
     gd = game_dir(inst)
+    if (gd / "CustomSkinLoader").exists():
+        sync_skin(inst, nick)
     variables = {
         "auth_player_name": nick, "auth_uuid": offline_uuid(nick), "auth_access_token": "0",
         "auth_session": "0", "auth_xuid": "0", "clientid": "0", "user_type": "legacy",
